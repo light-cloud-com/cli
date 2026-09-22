@@ -1,0 +1,58 @@
+{
+  "name": "@light-cloud/cli",
+  "version": "0.2.1",
+  "description": "Light Cloud command-line interface: deploy, watch, inspect and manage applications, environments and databases from the terminal.",
+  "type": "module",
+  "bin": {
+    "lc": "dist/index.js",
+    "light-cloud": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm run test && npm run build"
+  },
+  "keywords": [
+    "light-cloud",
+    "cli",
+    "deploy",
+    "cloud",
+    "paas"
+  ],
+  "author": "Light Cloud Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/light-cloud-com/cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/light-cloud-com/cli/issues"
+  },
+  "homepage": "https://github.com/light-cloud-com/cli#readme",
+  "dependencies": {
+    "@clack/prompts": "^1.7.0",
+    "archiver": "^7.0.1",
+    "commander": "^15.0.0",
+    "picocolors": "^1.1.1",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.7.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.18"
+  }
+}
