@@ -31,9 +31,9 @@ export function buildExcludePatterns(directory: string, additionalExcludes: stri
       // unreadable .gitignore: defaults still apply
     }
   }
-  // The link file travels with the source so the server can see it, but a
-  // developer's local secrets never do.
-  return [...new Set(patterns)].filter((pattern) => pattern !== '.lightcloud');
+  // The link file (.lightcloud) stays on this machine: nothing on the server
+  // reads it, and a static site published it to anyone at /.lightcloud.
+  return [...new Set([...patterns, '.lightcloud'])];
 }
 
 export function packageSource(options: PackageOptions = {}): Promise<PackageResult> {

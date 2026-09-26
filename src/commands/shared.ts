@@ -113,7 +113,15 @@ export interface DeployRunResult {
 
 export async function runDeploy(ctx: Context, options: DeployRunOptions): Promise<DeployRunResult> {
   const org = await ctx.resolveOrg();
-  const { app, env } = options;
+  const { app } = options;
+  // Always deploy an environment: the older application-level route carries
+  // none, so static sites fell back to a legacy hosting path (and failed) and
+  // no deployment record was written. No environment named = production.
+  let env = options.env ?? null;
+  if (!env) {
+    const envs = app.environments ?? (await ctx.api.listEnvironments(org.id, app.id));
+    env = envs.find(e => e.is_production) ?? envs[0] ?? null;
+  }
 
   const queued = env
     ? await ctx.api.deployEnvironment(org.id, env.id, options.uploadId)
