@@ -63,10 +63,11 @@ export function registerInitCommands(program: Command): void {
       }
 
       let app: Application;
+      let created = false;
       if (options.app) {
         app = await ctx.resolveApp(options.app);
       } else {
-        app = await chooseOrCreate(ctx, directory, detection, git);
+        ({ app, created } = await chooseOrCreate(ctx, directory, detection, git));
       }
 
       const envs = app.environments ?? (await ctx.api.listEnvironments(org.id, app.id));
@@ -87,7 +88,21 @@ export function registerInitCommands(program: Command): void {
         directory
       );
 
-      emit({ ok: true, path: file, application: { id: app.id, name: app.name }, environment: env ? { id: env.id, name: env.name } : null }, () => {
+      // A new app starts its first deployment on creation; follow it, so init
+      // ends with the address instead of a hint to go and look.
+      let url: string | undefined;
+      if (created) {
+        const watched = await watchResource(ctx.api, env ? { kind: 'environment', id: env.id, organisationId: org.id } : { kind: 'application', id: app.id, organisationId: org.id });
+        if (!watched.ok) {
+          throw new CliError(watched.update.deployment_error || 'The first deployment failed.', {
+            hint: `Fix the build and run \`lc deploy\`. Console: ${ctx.appConsoleUrl(app)}`,
+            exitCode: EXIT.FAILED,
+          });
+        }
+        url = watched.update.deployed_url ?? undefined;
+      }
+
+      emit({ ok: true, path: file, url, application: { id: app.id, name: app.name }, environment: env ? { id: env.id, name: env.name } : null }, () => {
         note(
           [
             `${c.bold('lc deploy')}        deploy ${env ? env.name : 'the production environment'}`,
@@ -97,7 +112,7 @@ export function registerInitCommands(program: Command): void {
           ].join('\n'),
           'Next'
         );
-        outro(`Linked ${c.bold(app.name)} ${c.dim(sym.arrow)} ${c.dim(file)}`);
+        outro(url ? `Live at ${link(url)}` : `Linked ${c.bold(app.name)} ${c.dim(sym.arrow)} ${c.dim(file)}`);
       });
     });
 
@@ -172,7 +187,7 @@ export function registerInitCommands(program: Command): void {
 
 // ---- wizard -------------------------------------------------------------------
 
-async function chooseOrCreate(ctx: Context, directory: string, detection: LocalDetection, git: GitInfo): Promise<Application> {
+async function chooseOrCreate(ctx: Context, directory: string, detection: LocalDetection, git: GitInfo): Promise<{ app: Application; created: boolean }> {
   const org = await ctx.resolveOrg();
   const apps = await ctx.api.listApplications(org.id);
 
@@ -182,7 +197,7 @@ async function chooseOrCreate(ctx: Context, directory: string, detection: LocalD
     : undefined;
 
   if (!isInteractive()) {
-    if (suggested) return ctx.api.getApplication(org.id, suggested.id);
+    if (suggested) return { app: await ctx.api.getApplication(org.id, suggested.id), created: false };
     throw new CliError('No terminal to ask in.', {
       hint: 'Pass --app <name> to link an existing app, or use `lc create` for a new one.',
       exitCode: EXIT.USAGE,
@@ -197,23 +212,24 @@ async function chooseOrCreate(ctx: Context, directory: string, detection: LocalD
 
   const choice = await select<Choice>('What would you like to do?', choices, { flag: '--app <name>' });
 
-  if (choice === 'suggested') return ctx.api.getApplication(org.id, suggested!.id);
+  if (choice === 'suggested') return { app: await ctx.api.getApplication(org.id, suggested!.id), created: false };
   if (choice === 'existing') {
     const id = await select<string>(
       'Which app?',
       apps.map((app) => ({ value: app.id, label: app.name, hint: `${app.framework} · ${app.status}` })),
       { flag: '--app <name>' }
     );
-    return ctx.api.getApplication(org.id, id);
+    return { app: await ctx.api.getApplication(org.id, id), created: false };
   }
 
-  return createApp(ctx, directory, {
+  const app = await createApp(ctx, directory, {
     dir: directory,
     deploy: true,
     watch: true,
     link: false,
     upload: git.provider !== 'github' ? true : undefined,
   }, { detection, git, interactive: true });
+  return { app, created: true };
 }
 
 // ---- create --------------------------------------------------------------------

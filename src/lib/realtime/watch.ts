@@ -46,42 +46,65 @@ const TERMINAL: Record<WatchTarget['kind'], Set<string>> = {
 
 const SUCCESS = new Set(['deployed', 'ready', 'healthy', 'deleted']);
 
-/** Print steps as they change. Shared by deploy, database create and rollback. */
+/**
+ * Print steps as they change. Shared by deploy, database create and rollback.
+ *
+ * The backend appends a new log entry when a step completes instead of
+ * updating the one that started it, so steps are matched by name, not by
+ * position. A step that completes while another is still running is held back
+ * until the running one stops, so it never lands inside the spinner's line.
+ */
 export class StepRenderer {
-  private printed = new Map<number, DeploymentLogStep['status']>();
-  private startedAt = new Map<number, number>();
+  private printed = new Map<string, DeploymentLogStep['status']>();
+  private startedAt = new Map<string, number>();
   private spin: Spinner | null = null;
-  private activeIndex: number | null = null;
+  private active: string | null = null;
+  private held: string[] = [];
+  private seen = 0;
 
   constructor(private readonly silent: boolean) {}
 
   render(steps: DeploymentLogStep[] | null | undefined): void {
     if (this.silent || isJson() || !steps) return;
-    steps.forEach((step, index) => {
-      const previous = this.printed.get(index);
-      if (previous === step.status) return;
+    // Entries only ever get appended; each update carries the whole list. A
+    // shorter list is a new run.
+    if (steps.length < this.seen) {
+      this.seen = 0;
+      this.printed.clear();
+    }
+    for (const step of steps.slice(this.seen)) this.renderStep(step);
+    this.seen = Math.max(this.seen, steps.length);
+  }
 
-      if (step.status === 'started') {
-        this.startedAt.set(index, Date.parse(step.timestamp) || Date.now());
-        this.stopSpinner();
-        this.spin = spinner();
-        this.spin.start(step.step + (step.message && step.message !== step.step ? c.dim(`  ${step.message}`) : ''));
-        this.activeIndex = index;
-      } else {
-        const began = this.startedAt.get(index);
-        const finished = Date.parse(step.timestamp) || Date.now();
-        const took = began ? c.dim(`  ${formatDuration(finished - began)}`) : '';
-        const line = step.status === 'completed' ? `${step.step}${took}` : `${step.step}${step.message ? c.red(`  ${step.message}`) : ''}`;
-        if (this.activeIndex === index && this.spin) {
-          this.spin.stop(line, step.status === 'completed' ? 0 : 1);
-          this.spin = null;
-          this.activeIndex = null;
-        } else {
-          out(`${step.status === 'completed' ? c.green(sym.ok) : c.red(sym.fail)} ${line}`);
-        }
-      }
-      this.printed.set(index, step.status);
-    });
+  private renderStep(step: DeploymentLogStep): void {
+    const name = stepLabel(step.step);
+    if (this.printed.get(name) === step.status) return;
+    this.printed.set(name, step.status);
+
+    if (step.status === 'started') {
+      this.startedAt.set(name, Date.parse(step.timestamp) || Date.now());
+      this.stopSpinner();
+      this.spin = spinner();
+      this.spin.start(name);
+      this.active = name;
+      return;
+    }
+
+    const began = this.startedAt.get(name);
+    const finished = Date.parse(step.timestamp) || Date.now();
+    const took = began ? c.dim(`  ${formatDuration(finished - began)}`) : '';
+    const ok = step.status === 'completed';
+    const line = ok ? `${name}${took}` : `${name}${step.message ? c.red(`  ${step.message}`) : ''}`;
+    if (this.active === name && this.spin) {
+      this.spin.stop(line, ok ? 0 : 1);
+      this.spin = null;
+      this.active = null;
+      this.flush();
+    } else if (this.spin) {
+      this.held.push(`${ok ? c.green(sym.ok) : c.red(sym.fail)} ${line}`);
+    } else {
+      out(`${ok ? c.green(sym.ok) : c.red(sym.fail)} ${line}`);
+    }
   }
 
   finish(message: string, ok: boolean): void {
@@ -89,20 +112,35 @@ export class StepRenderer {
     if (this.spin) {
       this.spin.stop(message, ok ? 0 : 1);
       this.spin = null;
+      this.active = null;
+      this.flush();
     } else {
+      this.flush();
       out(`${ok ? c.green(sym.ok) : c.red(sym.fail)} ${message}`);
     }
   }
 
+  private flush(): void {
+    for (const line of this.held) out(line);
+    this.held = [];
+  }
+
   private stopSpinner(): void {
-    if (this.spin && this.activeIndex !== null) {
-      // The previous step never reported completion; mark it done rather
+    if (this.spin && this.active !== null) {
+      // The previous step never reported completion; show it as done rather
       // than leaving a spinner on screen forever.
-      this.spin.stop(c.dim('…'), 0);
+      this.spin.stop(this.active, 0);
       this.spin = null;
-      this.activeIndex = null;
+      this.active = null;
+      this.flush();
     }
   }
+}
+
+// Step names come from the deployer and name the storage it writes to
+// ("Uploading files to R2"); users only need to know what is happening.
+function stepLabel(step: string): string {
+  return step.replace(/ to R2\b/, '').replace(/\bR2 /, '').trim();
 }
 
 async function fetchStatus(api: LightCloudApi, target: WatchTarget): Promise<ResourceUpdate> {

@@ -209,7 +209,7 @@ export async function uploadSource(ctx: Context, directory: string, detection: L
     detectedBuildCommand: detection.buildCommand,
     detectedOutputDirectory: detection.outputDirectory,
   });
-  spin.stop(`Uploaded ${pack.fileCount} files ${c.dim(`(${formatBytes(pack.buffer.length)})`)}`);
+  spin.stop(`Uploaded ${pack.fileCount} ${pack.fileCount === 1 ? 'file' : 'files'} ${c.dim(`(${formatBytes(pack.buffer.length)})`)}`);
   if (server.detectionSource === 'server' && server.detectedFramework && server.detectedFramework !== detection.framework) {
     log.info(`Light Cloud read the source as ${server.detectedFramework} (${server.detectedDeploymentType}).`);
   }

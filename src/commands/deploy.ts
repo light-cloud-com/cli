@@ -78,6 +78,5 @@ async function uploadForDeploy(ctx: ReturnType<typeof contextFrom>, dir: string)
     });
   }
   const upload = await uploadSource(ctx, directory, detection);
-  log.step(c.dim(`upload ${upload.uploadId}`));
   return upload.uploadId;
 }
