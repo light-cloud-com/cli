@@ -194,6 +194,38 @@ export interface DnsRecord {
   type: string;
   name: string;
   value: string;
+  /** The name relative to the root domain ("www", "@"). */
+  host?: string;
+  /** False for records that only matter when switching without downtime. */
+  required?: boolean;
+  /** Which hostname (www / root) the record belongs to. */
+  hostname?: string;
+  purpose?: 'routing' | 'ssl' | 'ownership' | 'caa';
+  /** What the record is for, in one sentence. */
+  reason?: string;
+  check?: { ok: boolean; observed: string | null; checkedAt?: string };
+}
+
+export interface DomainHostname {
+  hostname: string;
+  role: 'primary' | 'redirect';
+  status: string | null;
+  /** A root redirect the DNS provider cannot point here; setup is complete without it. */
+  optional?: boolean;
+}
+
+export interface DnsProviderInfo {
+  name: string;
+  apexSupport: 'alias' | 'flattening' | 'none' | 'unknown';
+  note: string;
+}
+
+/** A record found in public DNS that is in the way and should be deleted. */
+export interface DnsRecordToRemove {
+  type: string;
+  name: string;
+  host: string;
+  value: string;
 }
 
 export interface EnvironmentStatusUpdate {
@@ -469,6 +501,9 @@ export interface DomainResult {
   domain: string;
   status: string;
   dnsRecords?: DnsRecord[];
+  removeRecords?: DnsRecordToRemove[];
+  hostnames?: DomainHostname[];
+  dnsProvider?: DnsProviderInfo | null;
   message?: string;
   /** Reasons the edge gave for the domain not being active yet. */
   issues?: string[];

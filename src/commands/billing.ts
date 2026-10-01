@@ -227,6 +227,8 @@ function summariseEntitlements(plan: { price: number; entitlements?: Record<stri
     parts.push(tiers.length ? `db tiers ${tiers.join('/')}` : 'no databases');
   } else parts.push('every db tier');
   parts.push(ent.alwaysOnAllowed ? 'always-on' : 'no always-on');
+  parts.push(ent.customDomainsAllowed === false ? 'no custom domains' : 'custom domains');
+  if (ent.brandingBadge === true || (ent.brandingBadge === undefined && plan.price === 0)) parts.push('Light Cloud badge on sites');
   if (typeof ent.maxInstances === 'number') parts.push(`≤${ent.maxInstances} instances/app`);
   if (ent.seats === null) parts.push('unlimited members');
   else if (typeof ent.seats === 'number') parts.push(`${ent.seats} member${ent.seats === 1 ? '' : 's'}${ent.extraSeatAllowed ? ' (+$9 each extra)' : ''}`);

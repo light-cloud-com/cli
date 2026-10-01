@@ -3,6 +3,7 @@ import type { DnsRecord, DomainResult } from '../lib/api/types.js';
 import { CliError, EXIT } from '../lib/errors.js';
 import { c, emit, heading, log, out, printDetails, printTable, statusBadge } from '../lib/ui/output.js';
 import { confirm } from '../lib/ui/prompts.js';
+import { summariseDomain } from '../lib/domains/summary.js';
 import { contextFrom } from './shared.js';
 
 interface Scoped {
@@ -15,7 +16,7 @@ export function registerDomainCommands(program: Command): void {
 
   domains
     .command('show', { isDefault: true })
-    .description('Show the custom domain and its DNS status')
+    .description('Show the custom domain with a live DNS check')
     .option('-a, --app <app>', 'app name or id')
     .option('-e, --env <env>', 'environment (default: production)')
     .action(async (options: Scoped, command: Command) => {
@@ -24,20 +25,18 @@ export function registerDomainCommands(program: Command): void {
       const env = await ctx.resolveEnv(app, options.env);
       const org = await ctx.resolveOrg();
       const full = await ctx.api.getEnvironment(org.id, env.id);
-      emit({ domain: full.custom_domain, status: full.custom_domain_status, dns: full.custom_domain_dns, url: full.deployed_url }, () => {
+      if (!full.custom_domain || full.is_custom_domain === false) {
+        emit({ domain: null, url: full.deployed_url }, () => {
+          heading(`${app.name} / ${env.name}`);
+          log.info(`No custom domain. Add one with ${c.bold('lc domains add www.example.com')}.`);
+        });
+        return;
+      }
+      // Read DNS now: a stored check says what was true when someone last looked.
+      const result = await ctx.api.checkDomain(org.id, env.id);
+      emit(result, () => {
         heading(`${app.name} / ${env.name}`);
-        if (!full.custom_domain) {
-          log.info(`No custom domain. Add one with ${c.bold('lc domains add example.com')}.`);
-          return;
-        }
-        printDetails([
-          ['Domain', `${c.bold(full.custom_domain)}  ${statusBadge(full.custom_domain_status ?? 'unknown')}`],
-          ['Serves', full.deployed_url ?? undefined],
-        ]);
-        if (full.custom_domain_dns?.length) {
-          out();
-          printDns(full.custom_domain_dns);
-        }
+        printDomainResult(result, full.custom_domain!);
       });
     });
 
@@ -46,14 +45,15 @@ export function registerDomainCommands(program: Command): void {
     .description('Attach a custom domain (prints the DNS records to create)')
     .option('-a, --app <app>', 'app name or id')
     .option('-e, --env <env>', 'environment (default: production)')
-    .action(async (domain: string, options: Scoped, command: Command) => {
+    .option('--force', 'replace a working domain even if the new one does not point here yet')
+    .action(async (domain: string, options: Scoped & { force?: boolean }, command: Command) => {
       const ctx = contextFrom(command);
       const clean = domain.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
       if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(clean)) throw new CliError(`"${domain}" is not a domain name.`, { exitCode: EXIT.USAGE });
       const app = await ctx.resolveApp(options.app);
       const env = await ctx.resolveEnv(app, options.env);
       const org = await ctx.resolveOrg();
-      const result = await ctx.api.addDomain(org.id, env.id, clean);
+      const result = await ctx.api.addDomain(org.id, env.id, clean, options.force === true);
       emit(result, () => printDomainResult(result, clean));
     });
 
@@ -105,23 +105,82 @@ export function registerDomainCommands(program: Command): void {
 }
 
 function printDomainResult(result: DomainResult, domain: string): void {
-  const status = result.status ?? 'unknown';
-  if (status === 'active') log.success(`${c.bold(domain)} is active.`);
-  else log.info(`${c.bold(domain)}  ${statusBadge(status)}`);
-  if (result.message && status !== 'active') out(`  ${c.dim(result.message)}`);
-  for (const issue of result.issues ?? []) log.warn(`  ${issue}`);
-  if (result.dnsRecords?.length) {
+  const summary = summariseDomain(result, domain);
+
+  if (summary.state === 'serving') log.success(`${c.bold(domain)} is active and serving over HTTPS.`);
+  else if (summary.state === 'unreachable')
+    log.warn(`${c.bold(domain)} has a certificate, but its DNS does not point here. Visitors cannot reach it.`);
+  else if (summary.state === 'failed')
+    log.error(`${c.bold(domain)} could not be verified. Fix the records below, then run ${c.bold('lc domains retry')}.`);
+  else log.info(`${c.bold(domain)}  ${statusBadge('pending')}  waiting for DNS`);
+
+  if (summary.hostnames.length > 1) {
     out();
-    printDns(result.dnsRecords);
+    printTable(summary.hostnames, [
+      { header: 'Address', cell: (h) => c.bold(h.hostname) },
+      { header: 'Role', cell: (h) => (h.optional ? `${h.role} (optional)` : h.role) },
+      { header: 'Status', cell: (h) => statusBadge(h.status === 'pending_verification' ? 'pending' : h.status) },
+    ]);
+  }
+
+  // The server's sentences name the record and what DNS says now.
+  if (summary.state !== 'serving') for (const issue of result.issues ?? []) log.warn(`  ${issue}`);
+
+  if (result.removeRecords?.length) {
     out();
-    out(c.dim('  Create these records at your DNS provider, then run `lc domains check`.'));
+    out('  Delete at your DNS provider (they send the domain somewhere else):');
+    printTable(result.removeRecords, [
+      { header: 'Type', cell: (r) => c.bold(r.type) },
+      { header: 'Name', cell: (r) => r.host },
+      { header: 'Current value', cell: (r) => r.value, maxWidth: 80 },
+    ]);
+    out(c.dim('  Not in your DNS list? Turn off "forwarding" or "parking" for the domain.'));
+  }
+
+  if (summary.required.length) {
+    out();
+    out(summary.state === 'serving' ? '  Keep at your DNS provider:' : '  Add at your DNS provider:');
+    printDns(summary.required, summary.hostnames.length > 1);
+  }
+  if (summary.optional.length && summary.state !== 'serving') {
+    out();
+    out(c.dim('  Optional, only to switch a domain that already has visitors without downtime:'));
+    printDns(summary.optional, summary.hostnames.length > 1);
+  }
+
+  const rootInvolved = summary.hostnames.some((h) => h.role !== 'main address' || h.hostname.split('.').length === 2);
+  if (result.dnsProvider?.note && rootInvolved && summary.state !== 'serving') {
+    out();
+    out(`  ${c.dim(result.dnsProvider.note)}`);
+  }
+  if (summary.state === 'waiting' || summary.state === 'unreachable') {
+    out();
+    out(c.dim('  DNS changes usually show within minutes. Then run `lc domains check`.'));
   }
 }
 
-function printDns(records: DnsRecord[]): void {
+function printDns(records: DnsRecord[], showAddress = false): void {
+  const checked = records.some((r) => r.check);
   printTable(records, [
-    { header: 'Type', cell: (r) => c.bold(r.type) },
-    { header: 'Name', cell: (r) => r.name },
-    { header: 'Value', cell: (r) => r.value, maxWidth: 80 },
+    ...(showAddress ? [{ header: 'For', cell: (r: DnsRecord) => r.hostname ?? '' }] : []),
+    { header: 'Type', cell: (r: DnsRecord) => c.bold(r.type === 'ALIAS' ? 'ALIAS / ANAME' : r.type) },
+    { header: 'Name', cell: (r: DnsRecord) => r.host ?? r.name },
+    { header: 'Value', cell: (r: DnsRecord) => r.value, maxWidth: 80 },
+    ...(checked
+      ? [
+          {
+            header: 'In your DNS',
+            cell: (r: DnsRecord) =>
+              !r.check
+                ? ''
+                : r.check.ok
+                  ? c.green('found')
+                  : r.check.observed
+                    ? `different: ${r.check.observed}`
+                    : 'not found',
+            maxWidth: 60,
+          },
+        ]
+      : []),
   ]);
 }

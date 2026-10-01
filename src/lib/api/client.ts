@@ -41,6 +41,13 @@ const NEXT_STEP_HINTS: Record<string, string> = {
   'add-payment-method': 'Add a card with `lc billing card add`.',
 };
 
+/** Refusal codes that have an `lc` way forward. */
+const CODE_HINTS: Record<string, string> = {
+  DOMAIN_NOT_POINTING_HERE:
+    'Add the DNS record, wait until `dig` shows it, then run the command again. To switch anyway, add --force.',
+  USE_DOMAIN_ROUTES: 'Set a domain with `lc domains add <domain>`, remove it with `lc domains remove`.',
+};
+
 export class ApiClient {
   readonly endpoints: Endpoints;
   private refreshing: Promise<boolean> | null = null;
@@ -226,7 +233,7 @@ export class ApiClient {
     if (response.status === 429) {
       return new ApiError(429, code, 'Too many requests.', 'Wait a moment and try again.');
     }
-    return new ApiError(response.status, code, message, nextStep);
+    return new ApiError(response.status, code, message, nextStep ?? CODE_HINTS[code]);
   }
 }
 

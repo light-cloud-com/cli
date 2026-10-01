@@ -68,7 +68,7 @@ Everything the console can do, as commands. Console-only by design: the account 
 | `lc env metrics/activity/runtime` | Metrics, who changed what, what is running now |
 | `lc logs [-f] [--since 2h] [--min-severity WARNING] [--search text]` | Runtime logs |
 | `lc deployments`, `lc deployment <id>`, `lc rollback [id]` | History, the build log of one deployment, roll back without a rebuild |
-| `lc domains add/check/retry/remove` | Custom domains with the DNS records to create |
+| `lc domains`, `lc domains add/check/retry/remove` | Custom domains. `www` and the root are set up together. Shows a live DNS check, which records are required or optional, which to delete, and says when a domain has a certificate but does not point here. `add --force` replaces a working domain before the new one's DNS is ready. Custom domains come with the paid plans: on the free plan a first `add` is refused with `PLAN_ENTITLEMENT`; a domain attached earlier keeps working |
 | `lc folders`, `lc folder create/delete` | Folders that group apps and databases |
 | `lc stack create <id>` | An app from a stack template (e.g. Open SaaS) |
 | `lc dbs`, `lc db create/get/update/url/rotate-password/dump/import/schema/query/metrics/delete` | Databases: lifecycle, connection string, backups, schema, SQL, metrics |

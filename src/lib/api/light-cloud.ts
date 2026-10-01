@@ -205,11 +205,12 @@ export class LightCloudApi {
 
   // ---- domains -------------------------------------------------------------
 
-  async addDomain(organisationId: string, environmentId: string, domain: string): Promise<DomainResult> {
+  async addDomain(organisationId: string, environmentId: string, domain: string, force = false): Promise<DomainResult> {
     return this.client.post<DomainResult>('/api/environments/add-domain', {
       targetOrganisationId: organisationId,
       environmentId,
       domain,
+      ...(force ? { force: true } : {}),
     });
   }
 
