@@ -27,7 +27,7 @@ $ lc deploy
 $ npx @light-cloud/cli login --device --email you@example.com
 ```
 
-Type the 8-character code it prints at `console.light-cloud.com/device` from any device (approve the link in the email we send for a new address). That creates the account — free plan, no password, no form — and signs the terminal in. `lc billing card add --plan pro` later, when you need a paid plan; the card goes through a Stripe-hosted link, never through `lc`.
+Type the 8-character code it prints at `console.light-cloud.com/device` from any device (approve the link in the email we send for a new address). That creates the account on the Free plan — no card, no password, no form — and signs the terminal in. `lc billing upgrade lite` later, when you want a paid plan: one Stripe Checkout takes the card and the first payment, and the card never passes through `lc`.
 
 ## Install
 
@@ -68,11 +68,11 @@ Everything the console can do, as commands. Console-only by design: the account 
 | `lc env metrics/activity/runtime` | Metrics, who changed what, what is running now |
 | `lc logs [-f] [--since 2h] [--min-severity WARNING] [--search text]` | Runtime logs |
 | `lc deployments`, `lc deployment <id>`, `lc rollback [id]` | History, the build log of one deployment, roll back without a rebuild |
-| `lc domains`, `lc domains add/check/retry/remove` | Custom domains. `www` and the root are set up together. Shows a live DNS check, which records are required or optional, which to delete, and says when a domain has a certificate but does not point here. `add --force` replaces a working domain before the new one's DNS is ready. Custom domains come with the paid plans: on the free plan a first `add` is refused with `PLAN_ENTITLEMENT`; a domain attached earlier keeps working |
+| `lc domains`, `lc domains add/check/retry/remove` | Custom domains. `www` and the root are set up together. Shows a live DNS check, which records are required or optional, which to delete, and says when a domain has a certificate but does not point here. `add --force` replaces a working domain before the new one's DNS is ready. Custom domains come with the paid plans: on Free a first `add` is refused with `PLAN_ENTITLEMENT`, and the hint names the plan to upgrade to; a domain attached earlier keeps working |
 | `lc folders`, `lc folder create/delete` | Folders that group apps and databases |
 | `lc stack create <id>` | An app from a stack template (e.g. Open SaaS) |
 | `lc dbs`, `lc db create/get/update/url/rotate-password/dump/import/schema/query/metrics/delete` | Databases: lifecycle, connection string, backups, schema, SQL, metrics |
-| `lc billing`, `lc billing plans`, `lc billing plan use`, `lc billing card add/remove` | Plan, included usage and payment card (card via a Stripe-hosted link) |
+| `lc billing`, `lc billing plans`, `lc billing upgrade <plan> [--annual]`, `lc billing card add/remove` | Plan, included usage, a one-step upgrade and the payment card (both through Stripe-hosted pages). `lc billing plan use` is the same as `upgrade` |
 | `lc billing usage/history/invoices/invoice/outstanding/alerts/details` | Usage, invoices, usage alerts, billing address and tax ids |
 | `lc members`, `lc member invite/remove/role`, `lc roles` | Workspace members |
 | `lc keys`, `lc key create/revoke` | API keys for CI (paid plans; the secret is shown once) |
@@ -84,6 +84,18 @@ Everything the console can do, as commands. Console-only by design: the account 
 Every command takes `--json`, `--org <workspace>`, `--yes` and `--api-url`.
 
 Settings → Security → **Agents & CLI** in the console can switch the CLI off, or keep groups of actions (deploy, delete, settings, databases, billing, workspace, API keys) console-only. A refused command says so and names the setting; the session `lc login` receives is marked as the CLI's, so the switch holds regardless of flags.
+
+## Plans and billing
+
+Every workspace starts on **Free**: $1 of usage a month, unlimited static sites, 3 server apps, no card. When Free's $1 is used up, server apps and deploys pause until the next cycle and static sites keep serving; a free workspace is never billed. Paid plans include usage worth their price, and extra usage goes on the next invoice (unless you chose a usage limit at checkout). Annual billing is two months free.
+
+- `lc billing` — the plan, the card on file, and usage this cycle against what the plan includes; says when the workspace is paused and which plan brings it back.
+- `lc billing plans` — every plan with its monthly and annual price, the usage it includes, and its limits.
+- `lc billing upgrade <plan> [--annual]` — moves to a plan in one step. With a card on file it is charged at once; without one, a Stripe Checkout page (opened here, or a link for any device with `--no-browser`) takes the card and the first payment together, and the plan switches as soon as Stripe confirms. Downgrades wait for the end of the paid period.
+- `lc billing usage` — usage this cycle per app and database, removed ones included.
+- `lc billing alerts [--at <usd> | --clear]` — the 80% and 100% emails always send; add one extra alert at a dollar amount. Shows the usage limit on paid plans.
+
+A command refused by a plan limit names the plan that includes it, with the command to run: `Lite includes it ($5 a month): run lc billing upgrade lite`.
 
 ## How a folder is linked
 

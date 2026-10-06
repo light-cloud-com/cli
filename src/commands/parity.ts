@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import type { Command } from 'commander';
+import { FREE_PLAN_ID, money, pausedNotice, pausedOnFree, usageLimitNote } from '../lib/billing/plans.js';
 import { CliError, EXIT } from '../lib/errors.js';
 import { c, emit, heading, log, out, printDetails, printTable, relativeTime, statusBadge } from '../lib/ui/output.js';
 import { confirm } from '../lib/ui/prompts.js';
@@ -343,7 +344,7 @@ export function registerParityCommands(program: Command): void {
         const ctx = contextFrom(command);
         const org = await ctx.resolveOrg();
         const { data } = await ctx.api.plans(org.id);
-        const money = (n: number) => `$${n.toFixed(2)}`;
+        const onFree = pausedOnFree(data.hardStopReason, data.plans.find((p) => p.id === (data.currentPlanId ?? FREE_PLAN_ID)));
         const rows = [...(data.resources?.running ?? []).map((r) => ({ ...r, state: 'running' })), ...(data.resources?.removed ?? []).map((r) => ({ ...r, state: 'removed' }))];
         emit({ pool: data.pool, hardStopped: data.hardStopped, resources: data.resources }, () => {
           heading(org.name ?? org.id);
@@ -352,7 +353,7 @@ export function registerParityCommands(program: Command): void {
             ['Extra usage', data.pool.overage > 0 ? `${money(data.pool.overage)} — goes on the next invoice` : undefined],
             ['Left', data.pool.overage > 0 ? undefined : money(data.pool.remaining)],
           ]);
-          if (data.hardStopped) log.warn("The free plan's included usage is used up — projects are paused until an upgrade or the next cycle.");
+          if (data.hardStopped) log.warn(`${pausedNotice(onFree, data.pool.total)}${onFree ? ` Upgrade with ${c.bold('lc billing upgrade <plan>')}.` : ''}`);
           if (rows.length === 0) return out(c.dim('  Nothing has used anything this cycle.'));
           out();
           printTable(rows, [
@@ -436,14 +437,22 @@ export function registerParityCommands(program: Command): void {
         const ctx = contextFrom(command);
         const org = await ctx.resolveOrg();
         if (options.at === undefined && !options.clear) {
-          const current = await ctx.api.billingSettings(org.id);
+          const [current, plans] = await Promise.all([ctx.api.billingSettings(org.id), ctx.api.plans(org.id).catch(() => null)]);
           const data = ((current as Rec).data ?? current) as Rec;
-          const included = typeof data.paid_monthly === 'number' ? data.paid_monthly : data.spending_limit;
+          // paid_monthly is what the workspace pays ($0 on Free); the pool is what the plan includes.
+          const pool = plans?.data;
+          const included = pool ? pool.pool.total : typeof data.paid_monthly === 'number' && data.paid_monthly > 0 ? data.paid_monthly : data.spending_limit;
+          const onFree = pool ? (pool.plans.find((p) => p.id === (pool.currentPlanId ?? FREE_PLAN_ID))?.price ?? 0) <= 0 : false;
+          const limit =
+            !onFree && 'extra_usage_limit' in data
+              ? usageLimitNote({ extra: typeof data.extra_usage_limit === 'number' ? data.extra_usage_limit : null, paused: data.limit_paused === true })
+              : null;
           return emit(current, () => {
             printDetails([
-              ['Included usage', typeof included === 'number' ? `$${Number(included).toFixed(2)} this cycle (set by the plan)` : 'not set'],
+              ['Included usage', typeof included === 'number' ? `${money(included)} this cycle (set by the plan)` : 'not set'],
               ['Emails', 'at 80% and when it is used up — always'],
-              ['Extra alert', typeof data.budget_alert_threshold === 'number' ? `at $${Number(data.budget_alert_threshold).toFixed(2)} of usage` : 'none (lc billing alerts --at <usd>)'],
+              ['Extra alert', typeof data.budget_alert_threshold === 'number' ? `at ${money(data.budget_alert_threshold)} of usage` : 'none (lc billing alerts --at <usd>)'],
+              ['Usage limit', limit ?? undefined],
               ['Used up', data.cap_reached ? 'yes' : 'no'],
             ]);
           });
@@ -486,11 +495,18 @@ export function registerParityCommands(program: Command): void {
   if (org) {
     org
       .command('create <name>')
-      .description('Create a new workspace on the free plan')
+      .description('Create a new workspace (each person gets one Free workspace; a further one runs once it is on a paid plan)')
       .action(async (name: string, _options: unknown, command: Command) => {
         const ctx = contextFrom(command);
-        const result = await ctx.api.createOrganisation(name);
-        emit(result, () => log.success(`Workspace ${c.bold(name)} created. Switch to it with ${c.bold(`lc org use ${name}`)}.`));
+        const result = (await ctx.api.createOrganisation(name)) as Rec;
+        emit(result, () => {
+          log.success(`Workspace ${c.bold(name)} created. Switch to it with ${c.bold(`lc org use ${name}`)}.`);
+          // A person's second free workspace exists but creates and deploys nothing until it is on a paid plan.
+          if (result.needsPaidPlan) {
+            log.warn(typeof result.message === 'string' ? result.message : 'Each person gets one free workspace; this one runs once it is on a paid plan.');
+            log.info(`Upgrade it with ${c.bold(`lc billing upgrade <plan> --org ${name}`)}.`);
+          }
+        });
       });
   }
   program

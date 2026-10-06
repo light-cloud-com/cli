@@ -1,6 +1,6 @@
 {
   "name": "@light-cloud/cli",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Light Cloud command-line interface: deploy, watch, inspect and manage applications, environments and databases from the terminal.",
   "type": "module",
   "bin": {

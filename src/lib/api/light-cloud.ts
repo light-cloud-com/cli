@@ -336,12 +336,27 @@ export class LightCloudApi {
     return this.client.post<{ data: ChoosePlanResult }>('/api/billing/choose-plan', { targetOrganisationId: organisationId, planId });
   }
 
+  /** One-step plan change: a saved card is charged, or the answer is a Stripe Checkout link. */
+  async upgradePlan(organisationId: string, planId: string, interval?: BillingInterval): Promise<{ data: UpgradeResult }> {
+    return this.client.post<{ data: UpgradeResult }>('/api/billing/upgrade', {
+      targetOrganisationId: organisationId,
+      planId,
+      ...(interval ? { interval } : {}),
+      client: 'cli',
+    });
+  }
+
   async createCheckoutSession(organisationId: string): Promise<{ data: CheckoutSession }> {
     return this.client.post<{ data: CheckoutSession }>('/api/billing/checkout-session', { targetOrganisationId: organisationId, client: 'cli' });
   }
 
   async checkoutSessionStatus(organisationId: string, sessionId: string): Promise<{ data: CheckoutStatus }> {
     return this.client.post<{ data: CheckoutStatus }>('/api/billing/checkout-session/status', { targetOrganisationId: organisationId, sessionId });
+  }
+
+  /** The same session read through the upgrade route, which hosted card setup being off does not hide. */
+  async upgradeStatus(organisationId: string, sessionId: string): Promise<{ data: CheckoutStatus }> {
+    return this.client.post<{ data: CheckoutStatus }>('/api/billing/upgrade/status', { targetOrganisationId: organisationId, sessionId });
   }
 
   async removePaymentMethod(organisationId: string): Promise<void> {
@@ -573,12 +588,24 @@ export interface PlanCatalogEntry {
   name: string;
   price: number;
   entitlements?: Record<string, unknown> | null;
+  /** Usage the plan includes each cycle (backends since the 2026-10-06 redesign). */
+  includedUsage?: number;
+  /** Twelve months paid upfront; 0 on Free (backends since the 2026-10-06 redesign). */
+  annualPrice?: number | null;
 }
 
 export interface PlansResponse {
   plans: PlanCatalogEntry[];
   currentPlanId: string | null;
   pendingPlanId: string | null;
+  /** Why the workspace is paused: Free used its included usage, or a paid plan hit its usage limit. */
+  hardStopReason?: 'free_allowance' | 'usage_limit' | null;
+  interval?: BillingInterval;
+  annualPaidUntil?: string | null;
+  /** A scheduled switch between monthly and yearly billing. */
+  pendingInterval?: BillingInterval | null;
+  /** Optional usage limit on paid plans: extra usage, in dollars, after which server apps and deploys pause. */
+  usageLimit?: { extra: number | null; paused: boolean };
   pool: { total: number; spent: number; remaining: number; overage: number; pct: number; planPrice: number; cycleStarted: boolean };
   hardStopped: boolean;
   spendingLimit: number | null;
@@ -594,8 +621,24 @@ export interface ChoosePlanResult {
   pendingPlanId: string | null;
   proratedCharge: number;
   chargeStatus: string;
+  /** 'first_month' | 'first_year' (from Free), 'prorated' (difference against a paid period), 'none'. */
+  chargeKind?: string;
   effectiveAt: string | null;
+  interval?: BillingInterval;
+  /** A switch between monthly and yearly billing that waits for the paid period. */
+  pendingInterval?: BillingInterval | null;
 }
+
+export type BillingInterval = 'month' | 'year';
+
+/**
+ * POST /api/billing/upgrade. 'done': the saved card was charged, or a
+ * downgrade was scheduled. 'checkout': no card yet; Stripe Checkout takes
+ * the card and the first payment, and the plan switches when Stripe confirms.
+ */
+export type UpgradeResult =
+  | ({ status: 'done' } & Omit<ChoosePlanResult, 'effectiveAt'> & { effectiveAt?: string | null })
+  | ({ status: 'checkout' } & CheckoutSession);
 
 export interface CheckoutSession {
   url: string;
@@ -606,4 +649,6 @@ export interface CheckoutSession {
 export interface CheckoutStatus {
   status: 'open' | 'complete' | 'expired';
   paymentMethod: { brand: string; last4: string; exp_month: number; exp_year: number } | null;
+  /** Set for an upgrade checkout: the plan it buys, and whether the switch has landed. */
+  plan?: { id: string; applied: boolean };
 }

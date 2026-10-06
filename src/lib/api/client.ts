@@ -14,6 +14,7 @@ import {
   updateCredentials,
   type AuthSource,
 } from '../auth/credentials.js';
+import { requiredPlanHint } from '../billing/plans.js';
 import type { Endpoints } from '../config/global-config.js';
 import { USER_AGENT } from '../version.js';
 
@@ -33,11 +34,13 @@ interface ErrorBody {
   error?: string;
   /** The backend's own "what unblocks this" (MCP tool names); mapped to lc commands below. */
   nextStep?: string;
+  /** On a plan refusal: the plan that includes what was refused; null when no plan does. */
+  requiredPlan?: { id?: unknown; name?: unknown; price?: unknown } | null;
 }
 
 /** Backend `nextStep` values → the lc command that does the same thing. */
 const NEXT_STEP_HINTS: Record<string, string> = {
-  'choose-plan': 'Change plan with `lc billing plans` then `lc billing plan use <id>`.',
+  'choose-plan': 'See the plans with `lc billing plans`, then upgrade with `lc billing upgrade <plan>`.',
   'add-payment-method': 'Add a card with `lc billing card add`.',
 };
 
@@ -46,7 +49,20 @@ const CODE_HINTS: Record<string, string> = {
   DOMAIN_NOT_POINTING_HERE:
     'Add the DNS record, wait until `dig` shows it, then run the command again. To switch anyway, add --force.',
   USE_DOMAIN_ROUTES: 'Set a domain with `lc domains add <domain>`, remove it with `lc domains remove`.',
+  PAYMENT_FAILED: 'The card was declined and nothing changed. Save a different card with `lc billing card add`.',
 };
+
+/** The hint a plan refusal earns: the plan it names, or that none includes more. */
+function planHint(code: string, body: ErrorBody): string | undefined {
+  const plan = body.requiredPlan;
+  if (plan === null) return code === 'PLAN_ENTITLEMENT' ? requiredPlanHint(null) : undefined;
+  if (!plan || typeof plan.id !== 'string' || !plan.id) return undefined;
+  return requiredPlanHint({
+    id: plan.id,
+    name: typeof plan.name === 'string' ? plan.name : plan.id,
+    price: typeof plan.price === 'number' ? plan.price : Number(plan.price) || 0,
+  });
+}
 
 export class ApiClient {
   readonly endpoints: Endpoints;
@@ -218,9 +234,10 @@ export class ApiClient {
         : 'Your session has expired. Run `lc login` to sign in again.';
       return new ApiError(401, code, 'Authentication failed.', hint);
     }
-    const nextStep = body.nextStep ? NEXT_STEP_HINTS[body.nextStep] : undefined;
+    // A plan refusal that names its plan beats the generic "see the plans".
+    const nextStep = planHint(code, body) ?? (body.nextStep ? NEXT_STEP_HINTS[body.nextStep] : undefined);
     if (response.status === 402) {
-      return new ApiError(402, code, message, nextStep ?? 'This needs a paid plan. Manage plans with `lc billing plans`.');
+      return new ApiError(402, code, message, nextStep ?? CODE_HINTS[code] ?? 'This needs a paid plan. See the plans with `lc billing plans`.');
     }
     if (response.status === 403) {
       return new ApiError(

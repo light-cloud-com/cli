@@ -58,7 +58,7 @@ async function deviceSignIn(client: import('../lib/api/client.js').ApiClient, em
   const minutes = Math.max(1, Math.round((flow.expiresAt - Date.now()) / 60000));
 
   if (flow.newAccount) {
-    out(`${c.dim('│')}  No account exists for ${c.bold(email)} yet — approving creates one (free plan).`);
+    out(`${c.dim('│')}  No account exists for ${c.bold(email)} yet — approving creates one on the Free plan (no card).`);
     out(`${c.dim('│')}  Open the link in the email we sent to ${email}, then enter the code:`);
   } else {
     out(`${c.dim('│')}  Open ${link(flow.verificationUrl)} on any device, sign in, and enter the code:`);
