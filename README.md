@@ -134,16 +134,14 @@ the flag to pass instead.
 Exit codes: `0` ok · `1` error · `2` usage · `3` not signed in · `4` not found ·
 `5` the deployment or provisioning failed · `130` cancelled.
 
-## Staging or a local API
+## API endpoint
 
-```bash
-lc config set api-url https://api.staging-light-cloud.com
-# or per command
-LIGHT_CLOUD_API_URL=http://localhost:5001 lc apps
-```
-
-The console URL is inferred from the API URL (`api.` → `console.`); override it
-with `lc config set console-url …` or `LIGHT_CLOUD_CONSOLE_URL`.
+The CLI talks to `https://api.light-cloud.com` and `https://console.light-cloud.com`
+by default; nothing needs setting. To point it somewhere else, use
+`lc config set api-url <url>` or `LIGHT_CLOUD_API_URL` (per command:
+`LIGHT_CLOUD_API_URL=http://localhost:5001 lc apps`). The console URL is
+inferred from the API URL (`api.` → `console.`); override it with
+`lc config set console-url …` or `LIGHT_CLOUD_CONSOLE_URL`.
 
 ## Development
 
