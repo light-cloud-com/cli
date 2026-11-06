@@ -47,3 +47,21 @@ describe('plan refusals', () => {
     expect((await refusal()).hint).toContain('lc billing card add');
   });
 });
+
+describe('edge firewall', () => {
+  it('sends the console origin and client type', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await client.get('/api/projects', { anonymous: true });
+    const headers = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(headers.Origin).toBe('https://console.test');
+    expect(headers['X-Client-Type']).toBe('cli');
+  });
+
+  it('does not blame the role for a 403 that is not the API answering', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>Forbidden</html>', { status: 403 })));
+    const error = await refusal();
+    expect(error.message).toContain('blocked before it reached Light Cloud');
+    expect(error.hint).not.toContain('role');
+  });
+});

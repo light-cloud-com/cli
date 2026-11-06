@@ -136,6 +136,8 @@ export class ApiClient {
       Accept: 'application/json',
       'User-Agent': USER_AGENT,
       'X-Client-Type': 'cli',
+      // The API's edge firewall only lets requests from a console origin past sign-in (the MCP server sends it too).
+      Origin: this.endpoints.consoleUrl,
       ...options.headers,
     };
     const rawBody = options.body instanceof Uint8Array || options.body instanceof ArrayBuffer;
@@ -220,10 +222,11 @@ export class ApiClient {
 
   private async toApiError(response: Response): Promise<ApiError> {
     let body: ErrorBody = {};
+    let fromApi = true;
     try {
       body = (await response.json()) as ErrorBody;
     } catch {
-      // not JSON
+      fromApi = false;
     }
     const message = body.message || body.error || response.statusText || `HTTP ${response.status}`;
     const code = body.code || `HTTP_${response.status}`;
@@ -238,6 +241,15 @@ export class ApiClient {
     const nextStep = planHint(code, body) ?? (body.nextStep ? NEXT_STEP_HINTS[body.nextStep] : undefined);
     if (response.status === 402) {
       return new ApiError(402, code, message, nextStep ?? CODE_HINTS[code] ?? 'This needs a paid plan. See the plans with `lc billing plans`.');
+    }
+    if (response.status === 403 && !fromApi) {
+      // Not the API's JSON refusal: the edge firewall turned the request away before it reached Light Cloud.
+      return new ApiError(
+        403,
+        code,
+        'The request was blocked before it reached Light Cloud.',
+        'Update the CLI with `npm install -g @light-cloud/cli@latest` and try again. If it keeps happening, contact Light Cloud support from the console.'
+      );
     }
     if (response.status === 403) {
       return new ApiError(

@@ -23,6 +23,8 @@ export function connectLive(socketUrl: string, token: string | null, options: { 
     const socket = io(socketUrl, {
       transports: ['websocket', 'polling'],
       auth: token ? { token } : undefined,
+      // Lets the handshake past the API's edge firewall, which has no Origin to check from a terminal.
+      extraHeaders: { 'X-Client-Type': 'cli' },
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
