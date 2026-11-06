@@ -50,6 +50,8 @@ const CODE_HINTS: Record<string, string> = {
     'Add the DNS record, wait until `dig` shows it, then run the command again. To switch anyway, add --force.',
   USE_DOMAIN_ROUTES: 'Set a domain with `lc domains add <domain>`, remove it with `lc domains remove`.',
   PAYMENT_FAILED: 'The card was declined and nothing changed. Save a different card with `lc billing card add`.',
+  ENV_REQUIRED: 'Pass each missing variable as NAME=value: --var with `lc init --template`, --env with `lc templates deploy`.',
+  UPLOAD_NEEDS_REPO: 'This template needs a database, which an upload cannot create. Deploy it with `lc templates deploy <template> --name <name>`.',
 };
 
 /** The hint a plan refusal earns: the plan it names, or that none includes more. */

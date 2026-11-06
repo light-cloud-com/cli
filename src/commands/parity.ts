@@ -1,10 +1,12 @@
 import * as fs from 'node:fs';
 import type { Command } from 'commander';
 import { FREE_PLAN_ID, money, pausedNotice, pausedOnFree, usageLimitNote } from '../lib/billing/plans.js';
-import { CliError, EXIT } from '../lib/errors.js';
+import { ApiError, CliError, EXIT } from '../lib/errors.js';
 import { c, emit, heading, log, out, printDetails, printTable, relativeTime, statusBadge } from '../lib/ui/output.js';
 import { confirm } from '../lib/ui/prompts.js';
+import { parsePairs } from './envs.js';
 import { contextFrom } from './shared.js';
+import { followTemplateDeploy, startTemplateDeploy } from './templates.js';
 
 /*
  * Everything the console can do that the CLI could not (2026-09-15):
@@ -239,13 +241,18 @@ export function registerParityCommands(program: Command): void {
     .action(async (stackId: string, options: { name: string; repoName?: string; region?: string; folder?: string; env?: string[] }, command: Command) => {
       const ctx = contextFrom(command);
       const org = await ctx.resolveOrg();
-      const environmentVars: Record<string, string> = {};
-      for (const pair of options.env ?? []) {
-        const at = pair.indexOf('=');
-        if (at > 0) environmentVars[pair.slice(0, at)] = pair.slice(at + 1);
+      const environmentVars = parsePairs(options.env ?? []);
+      // A stack id is its template's slug: deploy the template and follow it.
+      let started: { templateDeployId: string };
+      try {
+        started = await startTemplateDeploy(ctx.api, stackId, { organisationId: org.id, name: options.name, repoName: options.repoName, region: options.region, folderId: options.folder, environmentVars });
+      } catch (error) {
+        // Templates switched off, or a backend without them: the stack route, as before.
+        if (!(error instanceof ApiError && (error.code === 'FLAG_OFF' || error.status === 404))) throw error;
+        const result = await ctx.api.createStack(org.id, stackId, { name: options.name, repoName: options.repoName, region: options.region, projectId: options.folder, environmentVars });
+        return emit(result, () => log.success(`Stack ${stackId} is being set up as ${c.bold(options.name)}. Follow it with ${c.bold(`lc status ${options.name}`)}.`));
       }
-      const result = await ctx.api.createStack(org.id, stackId, { name: options.name, repoName: options.repoName, region: options.region, projectId: options.folder, environmentVars });
-      emit(result, () => log.success(`Stack ${stackId} is being set up as ${c.bold(options.name)}. Follow it with ${c.bold(`lc status ${options.name}`)}.`));
+      await followTemplateDeploy(ctx, org.id, started.templateDeployId);
     });
 
   // ---- database admin ---------------------------------------------------------

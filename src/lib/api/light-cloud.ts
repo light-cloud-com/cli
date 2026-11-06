@@ -29,6 +29,14 @@ import type {
   PlatformConfig,
   Profile,
   Repository,
+  TemplateCard,
+  TemplateDeployPlan,
+  TemplateDeployRequest,
+  TemplateDeployStatus,
+  TemplateDetail,
+  TemplateDownload,
+  TemplateList,
+  TemplateSearch,
   UpdateEnvironmentRequest,
   UploadComplete,
   UploadSession,
@@ -452,6 +460,30 @@ export class LightCloudApi {
   }
   async createStack(organisationId: string, stackId: string, body: Record<string, unknown>): Promise<unknown> {
     return this.client.post('/api/stacks/create', this.org(organisationId, { stackId, ...body }));
+  }
+
+  // ---- templates (the gallery reads need no sign-in) ---------------------------
+
+  async searchTemplates(search: TemplateSearch): Promise<TemplateList> {
+    return this.client.get<TemplateList>('/api/public/templates', {
+      anonymous: true,
+      query: { q: search.query, category: search.category, runs: search.runs, lang: search.language, fw: search.framework, price: search.price, page: search.page },
+    });
+  }
+  async template(slug: string): Promise<{ template: TemplateDetail; similar: TemplateCard[] }> {
+    return this.client.get(`/api/public/templates/${encodeURIComponent(slug)}`, { anonymous: true });
+  }
+  async templateDeployPlan(slug: string, organisationId: string): Promise<TemplateDeployPlan> {
+    return this.client.get<TemplateDeployPlan>(`/api/templates/${encodeURIComponent(slug)}/deploy-plan`, { query: { organisationId } });
+  }
+  async deployTemplate(slug: string, body: TemplateDeployRequest): Promise<{ templateDeployId: string; applicationId: string | null }> {
+    return this.client.post(`/api/templates/${encodeURIComponent(slug)}/deploy`, body);
+  }
+  async templateDeploy(templateDeployId: string): Promise<TemplateDeployStatus> {
+    return this.client.get<TemplateDeployStatus>(`/api/templates/deploys/${encodeURIComponent(templateDeployId)}`);
+  }
+  async templateDownload(slug: string, organisationId: string): Promise<TemplateDownload> {
+    return this.client.get<TemplateDownload>(`/api/templates/${encodeURIComponent(slug)}/download`, { query: { organisationId } });
   }
 
   async updateDatabase(organisationId: string, databaseId: string, changes: Record<string, unknown>): Promise<Database> {

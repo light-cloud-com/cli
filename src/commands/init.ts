@@ -18,6 +18,8 @@ import { watchResource } from '../lib/realtime/watch.js';
 import { brand, c, emit, isInteractive, isJson, link, log, out, sym } from '../lib/ui/output.js';
 import { confirm, intro, note, outro, select, spinner, text } from '../lib/ui/prompts.js';
 import { contextFrom, describeDetection, runDeploy, uploadSource, warnIfDirty } from './shared.js';
+import { parsePairs } from './envs.js';
+import { downloadTemplate } from './templates.js';
 
 interface CreateOptions {
   name?: string;
@@ -39,20 +41,24 @@ interface CreateOptions {
 
 export function registerInitCommands(program: Command): void {
   program
-    .command('init')
-    .description('Link this folder to a Light Cloud app (existing or new)')
+    .command('init [dir]')
+    .description('Link this folder to a Light Cloud app (existing or new), or start one from a template')
     .option('-a, --app <app>', 'link to this existing app without asking')
     .option('-e, --env <env>', 'default environment for `lc deploy` in this folder')
-    .option('-d, --dir <path>', 'project folder', '.')
-    .action(async (options: { app?: string; env?: string; dir: string }, command: Command) => {
+    .option('-d, --dir <path>', 'project folder (default: .)')
+    .option('--template <slug>', 'copy a template into [dir] (default ./<slug>) and create an app from it')
+    .option('--var <NAME=value>', 'a template variable (repeat for each)', (value: string, previous: string[] = []) => [...previous, value])
+    .action(async (dir: string | undefined, options: { app?: string; env?: string; dir?: string; template?: string; var?: string[] }, command: Command) => {
       const ctx = contextFrom(command);
-      const directory = path.resolve(options.dir);
+      const directory = path.resolve(dir ?? options.dir ?? options.template ?? '.');
       ctx.requireAuth();
 
       intro(`${brand()} init`);
       const org = await ctx.resolveOrg();
+      const templateVars = options.template ? await downloadTemplate(ctx, org.id, options.template, directory, parsePairs(options.var ?? [])) : undefined;
       const detection = detectLocalProject(directory);
-      const git = detectGit(directory);
+      // A fresh template copy: a repository enclosing the folder is not its source.
+      const git: GitInfo = options.template ? { hasGit: false } : detectGit(directory);
 
       if (!isJson()) {
         out(`${c.dim('│')}  Folder     ${directory}`);
@@ -66,6 +72,9 @@ export function registerInitCommands(program: Command): void {
       let created = false;
       if (options.app) {
         app = await ctx.resolveApp(options.app);
+      } else if (options.template) {
+        app = await createApp(ctx, directory, { dir: directory, deploy: true, watch: true, link: false, upload: true }, { detection, git, templateSlug: options.template, environmentVars: templateVars });
+        created = true;
       } else {
         ({ app, created } = await chooseOrCreate(ctx, directory, detection, git));
       }
@@ -238,6 +247,10 @@ interface CreateContext {
   detection?: LocalDetection;
   git?: GitInfo;
   interactive?: boolean;
+  /** The template the folder came from: the new app counts as a deploy of it. */
+  templateSlug?: string;
+  /** Variables for the new app (a template's required ones). */
+  environmentVars?: Record<string, string>;
 }
 
 async function createApp(ctx: Context, directory: string, options: CreateOptions, extra: CreateContext = {}): Promise<Application> {
@@ -392,6 +405,8 @@ async function createApp(ctx: Context, directory: string, options: CreateOptions
     buildCommand,
     outputDirectory: deploymentType === 'static' ? outputDirectory : undefined,
     containerPort: deploymentType === 'container' ? containerPort : undefined,
+    environmentVars: extra.environmentVars,
+    ...(extra.templateSlug ? { templateSlug: extra.templateSlug, via: 'cli' as const } : {}),
   });
   spinCreate.stop(`Created ${c.bold(app.name)} ${c.dim(app.id)}`);
   if (options.deploy && app.status && !['queued', 'deploying', 'pending'].includes(app.status)) {

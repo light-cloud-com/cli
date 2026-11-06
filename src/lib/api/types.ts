@@ -438,6 +438,86 @@ export interface CreateFromUploadRequest {
   memory?: string;
   cpu?: string;
   region?: string;
+  /** Attribution: the template this upload started from (records a template deploy). */
+  templateSlug?: string;
+  via?: 'cli';
+}
+
+// ---- templates (console-backend /api/public/templates and /api/templates) ----
+
+export interface TemplateSearch {
+  query?: string;
+  category?: string;
+  runs?: string;
+  language?: string;
+  framework?: string;
+  price?: string;
+  page?: string | number;
+}
+
+export interface TemplateCard {
+  slug: string;
+  name: string;
+  description: string;
+  categoryName: string;
+  frameworkName: string;
+  runsAs: 'static' | 'server' | 'database';
+  priceCents: number | null;
+  author: { name: string; isLightCloud: boolean };
+  demoUrl: string | null;
+  deployCount: number;
+}
+
+export interface TemplateList {
+  items: TemplateCard[];
+  total: number;
+  page: number;
+  perPage: number;
+}
+
+export interface TemplateDetail extends TemplateCard {
+  repo: { url: string; rootDirectory: string | null };
+  creates: { app: 'static' | 'server'; database: { engine: string; tier: string; storageGb: number } | null };
+  planRequired: 'free' | 'paid';
+  variables: { name: string; kind: 'filled' | 'generated' | 'required' | 'optional'; hint: string | null; feature: string | null }[];
+  customize: Record<string, { ask: string; files: string[]; default?: string }> | null;
+}
+
+export interface TemplateDeployPlan {
+  allowed: boolean;
+  blockers: { code: string; message: string; plan?: string }[];
+  copyOptions: { providers: ('github' | 'gitlab' | 'bitbucket')[]; readonly: boolean; download: boolean };
+  defaultName: string;
+}
+
+export interface TemplateDeployRequest {
+  organisationId: string;
+  name: string;
+  region?: string;
+  folderId?: string;
+  environmentVars?: Record<string, string>;
+  copy: 'repo' | 'readonly';
+  provider?: 'github' | 'gitlab' | 'bitbucket';
+  repoName?: string;
+  via: 'cli';
+}
+
+export interface TemplateDeployStatus {
+  id: string;
+  status: 'queued' | 'creating_database' | 'creating_app' | 'deploying' | 'live' | 'failed';
+  applicationId: string | null;
+  environmentId: string | null;
+  url: string | null;
+  error: string | null;
+  template: { slug: string; name: string };
+}
+
+export interface TemplateDownload {
+  url: string;
+  tarballUrl: string;
+  ref: string;
+  rootDirectory: string | null;
+  filename: string;
 }
 
 export interface CreateEnvironmentRequest {

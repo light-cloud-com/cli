@@ -16,6 +16,7 @@ import { registerEnvCommands } from './commands/envs.js';
 import { registerInitCommands } from './commands/init.js';
 import { registerLogsCommand } from './commands/logs.js';
 import { registerOrgCommands } from './commands/orgs.js';
+import { registerTemplateCommands } from './commands/templates.js';
 import { ApiError, CancelledError, CliError, EXIT } from './lib/errors.js';
 import { c, configureOutput, err, isJson, printJson } from './lib/ui/output.js';
 import { cliVersion } from './lib/version.js';
@@ -63,6 +64,7 @@ program.hook('preAction', (thisCommand) => {
 registerAuthCommands(program);
 registerOrgCommands(program);
 registerInitCommands(program);
+registerTemplateCommands(program);
 registerAppCommands(program);
 registerDeployCommand(program);
 registerEnvCommands(program);
